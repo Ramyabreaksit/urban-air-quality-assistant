@@ -26,3 +26,8 @@ Push to a public GitHub repo, create an app on Streamlit Community Cloud, and ad
 ## Security
 Keys live only in secrets, input is sanitised and length-limited, network calls have timeouts,
 and the model prompt only uses fetched data. General guidance only, not medical advice.
+## Accessibility
+- Every input has a visible label and help text
+- Air-quality status is written in words, never colour alone, and announced to screen readers
+- High-contrast light theme (.streamlit/config.toml)
+- Plain-language advice, responsive layout, keyboard-usable form
