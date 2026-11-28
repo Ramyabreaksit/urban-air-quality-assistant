@@ -8,6 +8,10 @@ HOMES = ["Apartment", "Independent house"]
 SENSITIVE = ["Young children", "Elderly members", "Asthma / breathing issues", "Pregnancy"]
 COOKING = ["LPG / gas", "Induction / electric", "Wood / biomass"]
 
+WORKING_DAYS_PER_MONTH = 22
+MAX_COMMUTE_KM = 200.0
+MAX_CITY_LENGTH = 60
+
 # Rough, approximate tailpipe CO2 in kg per passenger-km. Estimates, not measurements.
 CO2_PER_KM = {
     "Car": 0.17,
@@ -21,26 +25,22 @@ CO2_PER_KM = {
 def sanitize_city(raw: str) -> str:
     """Keep letters, spaces, commas, dots, hyphens; cap length."""
     cleaned = re.sub(r"[^A-Za-z\u00C0-\u024F\u0900-\u0DFF ,.\-']", "", raw or "").strip()
-    return cleaned[:60]
+    return cleaned[:MAX_CITY_LENGTH]
 
 
-def commute_saving(current: str, alternative: str, km_one_way: float, days: int = 22) -> dict:
+def commute_saving(current: str, alternative: str, km_one_way: float, days: int = WORKING_DAYS_PER_MONTH) -> dict:
     """Estimate monthly CO2 saved by switching commute mode (approximate)."""
     if current not in CO2_PER_KM or alternative not in CO2_PER_KM:
         raise ValueError("Unknown commute mode")
-    km = max(0.0, min(float(km_one_way), 200.0))
+    km = max(0.0, min(float(km_one_way), MAX_COMMUTE_KM))
     monthly_km = km * 2 * days
     saved = (CO2_PER_KM[current] - CO2_PER_KM[alternative]) * monthly_km
     return {"monthly_km": round(monthly_km, 1), "co2_saved_kg": round(max(saved, 0.0), 1)}
 
 
-def rule_based_plan(profile: dict, aq: dict) -> str:
-    """Offline fallback so the app is useful without an AI key."""
-    level = aq["level"]
-    sensitive = bool(profile.get("sensitive"))
-    lines = []
-
-    lines.append("### Today's routine")
+def _routine_section(level: int, sensitive: bool) -> list[str]:
+    """Daily routine advice for the given AQI level (0-5)."""
+    lines = ["### Today's routine"]
     if level <= 1:
         lines.append("- Air is acceptable. Outdoor activity is fine; prefer morning or evening walks.")
     elif level == 2:
@@ -51,25 +51,42 @@ def rule_based_plan(profile: dict, aq: dict) -> str:
         lines.append("- Avoid outdoor exercise. Move play and workouts indoors.")
         lines.append("- Wear a well-fitted N95/FFP2 mask if you must go out; cloth masks do little for PM2.5.")
         lines.append("- Run errands at midday when air is usually a little cleaner than early morning smog.")
+    return lines
 
-    lines.append("\n### Indoor air quality")
-    lines.append("- Keep windows closed during peak pollution; air the home briefly when AQI dips.")
-    lines.append("- Damp-mop and wipe surfaces instead of dry sweeping, which lifts dust.")
-    if profile.get("home") == "Apartment":
+
+def _indoor_section(home: str | None, cooking: str | None) -> list[str]:
+    """Indoor air quality tips based on home type and cooking fuel."""
+    lines = ["\n### Indoor air quality",
+             "- Keep windows closed during peak pollution; air the home briefly when AQI dips.",
+             "- Damp-mop and wipe surfaces instead of dry sweeping, which lifts dust."]
+    if home == "Apartment":
         lines.append("- Seal door and window gaps with draught strips to cut outdoor air leaking in.")
     lines.append("- A HEPA purifier sized to the room helps most in the bedroom.")
-    if profile.get("cooking") == "Wood / biomass":
+    if cooking == "Wood / biomass":
         lines.append("- Cooking smoke is a major indoor source: use a chimney or exhaust and keep a window cracked while cooking.")
     else:
         lines.append("- Use the exhaust fan while cooking and avoid burning incense or mosquito coils indoors.")
+    return lines
 
-    lines.append("\n### Greener swaps")
-    mode = profile.get("commute")
-    if mode in ("Car", "Two-wheeler"):
+
+def _swaps_section(commute: str | None) -> list[str]:
+    """Greener swap suggestions based on the current commute."""
+    lines = ["\n### Greener swaps"]
+    if commute in ("Car", "Two-wheeler"):
         lines.append("- Switch some trips to bus/metro/train, or carpool, to cut your own tailpipe emissions.")
-    elif mode == "Bus / metro / train":
+    elif commute == "Bus / metro / train":
         lines.append("- Your commute is already low-emission. Walk the last stretch when AQI is below 100.")
     lines.append("- Avoid burning waste or leaves; report open burning near you.")
+    return lines
+
+
+def rule_based_plan(profile: dict, aq: dict) -> str:
+    """Offline fallback plan so the app is useful without an AI key."""
+    lines = (
+        _routine_section(aq["level"], bool(profile.get("sensitive")))
+        + _indoor_section(profile.get("home"), profile.get("cooking"))
+        + _swaps_section(profile.get("commute"))
+    )
     return "\n".join(lines)
 
 

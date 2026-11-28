@@ -69,3 +69,26 @@ def test_geocode_not_found(monkeypatch):
     monkeypatch.setattr(aqi.requests, "get", lambda *a, **k: FakeResp({}))
     with pytest.raises(AirQualityError):
         geocode("zzzz")
+
+
+def test_sections_are_separate_and_complete():
+    from advice import _indoor_section, _routine_section, _swaps_section
+    assert _routine_section(0, False)[0] == "### Today's routine"
+    assert any("Sensitive" in line for line in _routine_section(2, True))
+    assert not any("Sensitive" in line for line in _routine_section(2, False))
+    assert any("chimney" in line for line in _indoor_section("Apartment", "Wood / biomass"))
+    assert any("carpool" in line for line in _swaps_section("Car"))
+    assert any("already low-emission" in line for line in _swaps_section("Bus / metro / train"))
+
+
+def test_commute_saving_clamps_distance():
+    huge = commute_saving("Car", "Walk / cycle", 10_000)
+    capped = commute_saving("Car", "Walk / cycle", 200)
+    assert huge == capped
+
+
+def test_fetch_air_quality_missing_aqi(monkeypatch):
+    import aqi
+    monkeypatch.setattr(aqi.requests, "get", lambda *a, **k: FakeResp({"current": {"us_aqi": None}}))
+    with pytest.raises(AirQualityError):
+        fetch_air_quality(1, 1)

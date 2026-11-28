@@ -1,11 +1,15 @@
 """Air-quality data access (Open-Meteo, no API key needed) and AQI helpers."""
 from __future__ import annotations
 
+import logging
+
 import requests
+
+logger = logging.getLogger(__name__)
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
-TIMEOUT = 10
+TIMEOUT = 10  # seconds, applied to every network call
 
 # (upper bound, label, level 0-5) based on the US AQI scale
 AQI_BANDS = [
@@ -33,7 +37,10 @@ def aqi_category(aqi: float) -> tuple[str, int]:
 
 
 def geocode(city: str) -> dict:
-    """Resolve a city name to name/lat/lon."""
+    """Resolve a city name to a dict with name, lat and lon.
+
+    Raises AirQualityError if the lookup fails or nothing matches.
+    """
     try:
         r = requests.get(
             GEOCODE_URL,
@@ -43,6 +50,7 @@ def geocode(city: str) -> dict:
         r.raise_for_status()
         results = r.json().get("results")
     except (requests.RequestException, ValueError) as exc:
+        logger.warning("Geocoding failed for %r: %s", city, exc)
         raise AirQualityError("Could not look up that location right now.") from exc
     if not results:
         raise AirQualityError(f"No location found for '{city}'. Try a nearby city.")
@@ -55,7 +63,10 @@ def geocode(city: str) -> dict:
 
 
 def fetch_air_quality(lat: float, lon: float) -> dict:
-    """Current US AQI, PM2.5 and PM10 for a coordinate."""
+    """Return current US AQI, PM2.5, PM10, category and level for a coordinate.
+
+    Raises AirQualityError if live data is unavailable.
+    """
     try:
         r = requests.get(
             AIR_URL,
@@ -68,6 +79,7 @@ def fetch_air_quality(lat: float, lon: float) -> dict:
         if aqi is None:
             raise KeyError("us_aqi")
     except (requests.RequestException, KeyError, ValueError) as exc:
+        logger.warning("Air-quality fetch failed for (%s, %s): %s", lat, lon, exc)
         raise AirQualityError("Live air-quality data is unavailable for this location.") from exc
     label, level = aqi_category(aqi)
     return {
